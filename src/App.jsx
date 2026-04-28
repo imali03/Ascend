@@ -23,6 +23,7 @@ if (typeof window !== 'undefined' && !window.storage) {
 const STORAGE_KEY_HISTORY = 'ascend:history:v2';
 const STORAGE_KEY_ROTATION_INDEX = 'ascend:rotation_index:v2';
 const STORAGE_KEY_CUSTOM_EXERCISES = 'ascend:custom_exercises:v2';
+const STORAGE_KEY_ACTIVE_WORKOUT = 'ascend:active_workout:v2';
 
 // ============================================================================
 // ROTATION SEQUENCE
@@ -1211,6 +1212,15 @@ export default function FitnessTracker() {
           if (Number.isFinite(n) && n >= 0) setRotationIndex(n);
         }
       } catch (e) { /* default 0 */ }
+      try {
+        const res = await window.storage.get(STORAGE_KEY_ACTIVE_WORKOUT);
+        if (!cancelled && res && res.value) {
+          const parsed = JSON.parse(res.value);
+          if (parsed && parsed.workoutId && parsed.startTime) {
+            setActiveWorkout(parsed);
+          }
+        }
+      } catch (e) { /* no active workout, fine */ }
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -1234,6 +1244,19 @@ export default function FitnessTracker() {
       try { await window.storage.set(STORAGE_KEY_ROTATION_INDEX, String(rotationIndex)); } catch (e) {}
     })();
   }, [rotationIndex, loading]);
+  // Save active workout on every change (auto-resume mid-workout)
+  useEffect(() => {
+    if (loading) return;
+    (async () => {
+      try {
+        if (activeWorkout) {
+          await window.storage.set(STORAGE_KEY_ACTIVE_WORKOUT, JSON.stringify(activeWorkout));
+        } else {
+          await window.storage.delete(STORAGE_KEY_ACTIVE_WORKOUT);
+        }
+      } catch (e) {}
+    })();
+  }, [activeWorkout, loading]);
 
   const currentRotationId = ROTATION_SEQUENCE[rotationIndex % ROTATION_SEQUENCE.length];
   const nextRotationId = ROTATION_SEQUENCE[(rotationIndex + 1) % ROTATION_SEQUENCE.length];
@@ -1309,11 +1332,20 @@ export default function FitnessTracker() {
   const resetAllData = async () => {
     try { await window.storage.delete(STORAGE_KEY_HISTORY); } catch (e) {}
     try { await window.storage.delete(STORAGE_KEY_ROTATION_INDEX); } catch (e) {}
+    try { await window.storage.delete(STORAGE_KEY_ACTIVE_WORKOUT); } catch (e) {}
     setHistory([]);
     setRotationIndex(0);
+    setActiveWorkout(null);
     setShowResetConfirm(false);
     setTab('dashboard');
   };
+// If we restored an active workout on load, jump to the workout tab automatically
+  useEffect(() => {
+    if (!loading && activeWorkout && tab === 'dashboard') {
+      setTab('workout');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   if (loading) {
     return (
